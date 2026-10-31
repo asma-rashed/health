@@ -1,38 +1,11 @@
 <?php
 session_start();
-include 'config.php';
-if (isset($_GET['success']) && $_GET['success'] == 1) {
-    echo "<script>
-        alert('successfully subscribed!');
-    </script>";
+require_once 'config.php';
+
+$subscribed = isset($_GET['success']) && $_GET['success'] === '1';
+if ($subscribed) {
+    echo "<script>alert('successfully subscribed!');</script>";
 }
-if (isset($_SESSION['email'])) {
-    $email = $_SESSION['email'];
-
-    $tables = ['users', 'coaches', 'nutritionists'];
-    $user_found = false;
-
-    foreach ($tables as $table) {
-        $sql = "SELECT * FROM $table WHERE email = '$email'";
-        $query = mysqli_query($con, $sql);
-
-        if ($query && mysqli_num_rows($query) > 0) {
-            $row = mysqli_fetch_assoc($query);
-            $id = $row['id'];
-            $user_email = $row['email'];
-
-            $_SESSION['user_type'] = $table;
-
-            $user_found = true;
-            break;
-        }
-    }
-
-    if (!$user_found) {
-        echo "User not found.";
-    }
-}
-
 ?>
 
 <!DOCTYPE html>
@@ -115,12 +88,12 @@ if (isset($_SESSION['email'])) {
                         <div class="img"><img src="images/user-icon.png"
                                 alt="" draggable="false"> </div>
                         <h2>
-                            <?= $row['username'] ?>
+                            <?= e($row['username']) ?>
                         </h2>
-                        <span>Years of experience:<?= $row['experience'] ?>
+                        <span>Years of experience:<?= e($row['experience']) ?>
                         </span>
                         <span></span>
-                        <a href="viewcoaches.php?id=<?= $row['id'] ?>">View more</a>
+                        <a href="viewcoaches.php?id=<?= (int) $row['id'] ?>">View more</a>
                     </li>
             <?php
                 }
@@ -144,11 +117,11 @@ if (isset($_SESSION['email'])) {
                         <div class="img"><img src="images/user-icon.png"
                                 alt="" draggable="false"> </div>
                         <h2 style=" font-weight:bold;">
-                            <?= $row['username'] ?>
+                            <?= e($row['username']) ?>
                         </h2>
-                        <span> Years of experience:<?= $row['experience'] ?></span>
+                        <span> Years of experience:<?= e($row['experience']) ?></span>
 
-                        <a href="viewnutr.php?id=<?= $row['id'] ?>">View more</a>
+                        <a href="viewnutr.php?id=<?= (int) $row['id'] ?>">View more</a>
                     </li>
             <?php
                 }

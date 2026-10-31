@@ -1,0 +1,12 @@
+# Local settings and secrets: never commit these
+config.local.php
+.env
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

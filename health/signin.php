@@ -1,128 +1,183 @@
 <?php
 session_start();
-include 'config.php';
+require_once 'config.php';
 
-
-if (isset($_POST['sign_user'])) {
-    $name = $_POST['name'];
-    $email = $_POST['email'];
-    $phone = $_POST['phone'];
-    $gender = $_POST['gender'];
-    $weight = $_POST['weight'];
-    $height = $_POST['height'];
-    $dob = $_POST['dob'];
-    $goal = $_POST['goal'];
-    $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
-
-    $insert = "INSERT INTO users (name, email, phone, gender, weight, height, date_of_birth, goal, password) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    $stmt = mysqli_prepare($con, $insert);
-    mysqli_stmt_bind_param($stmt, "sssssssss", $name, $email, $phone, $gender, $weight, $height, $dob, $goal, $password);
-    $result = mysqli_stmt_execute($stmt);
-
-    if ($result) {
-
-        $sql = "SELECT * FROM users WHERE email = ?";
-        $stmt = mysqli_prepare($con, $sql);
-        mysqli_stmt_bind_param($stmt, "s", $email);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        if ($row = mysqli_fetch_assoc($result)) {
-            $_SESSION['email'] = $row['email'];
-            $_SESSION['name'] = $row['name'];
-            $_SESSION['user_type'] = 'users';
-            $_SESSION['user_info'] = $row;
-
-            header('Location: index.php');
-            exit;
-        } else {
-            echo "Error: " . mysqli_error($con);
-        }
-    }
+// Already logged in? Nothing to do here.
+if (!empty($_SESSION['email'])) {
+    header('Location: profile.php');
+    exit;
 }
 
-if (isset($_POST['sign_coach'])) {
-    $username = $_POST['username'];
-    $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
-    $email = $_POST['email'];
-    $phone = $_POST['phone'];
-    $dob = $_POST['dob'];
-    $gender = $_POST['gender'];
-    $experience = $_POST['experience'];
-    $certifications = $_POST['certifications'];
-    $hourly_rate = $_POST['hourly_rate'];
+// ---------------------------------------------------------------
+// One description for each type of account.
+//   table   : where the account is stored (fixed list, safe to put in SQL)
+//   form    : which tab is shown on the page
+//   fields  : database column => [label, input type, required kind]
+//   session : value stored in $_SESSION['user_type']
+// The order of the fields is also the order of the INSERT columns.
+// ---------------------------------------------------------------
+$roles = [
+    'sign_user' => [
+        'table' => 'users', 'form' => 'form1', 'title' => 'User',
+        'fields' => [
+            'name'          => ['name:', 'text', 'name'],
+            'email'         => ['Email Address:', 'email', 'email'],
+            'phone'         => ['phone number:', 'text', 'phone'],
+            'gender'        => ['gender:', 'radio', 'gender'],
+            'weight'        => ['weight:', 'number', 'positive'],
+            'height'        => ['height:', 'number', 'positive'],
+            'date_of_birth' => ['date of birth:', 'date', 'date'],
+            'goal'          => ['Purpose (weight loss, muscle building, etc.):', 'textarea', 'goal'],
+        ],
+    ],
+    'sign_coach' => [
+        'table' => 'coaches', 'form' => 'form2', 'title' => 'trainer',
+        'fields' => [
+            'username'       => ['Name:', 'text', 'name'],
+            'email'          => ['Email Address:', 'email', 'email'],
+            'phone'          => ['phone number:', 'text', 'phone'],
+            'dob'            => ['date of birth:', 'date', 'date'],
+            'gender'         => ['gender:', 'radio', 'gender'],
+            'experience'     => ['Years of experience:', 'number', 'years'],
+            'certifications' => ['Certificates:', 'textarea', 'text'],
+            'hourly_rate'    => ['Subscription fee:', 'text', 'fee'],
+        ],
+    ],
+    'sign_nutr' => [
+        'table' => 'nutritionists', 'form' => 'form3', 'title' => 'Nutritionist',
+        'fields' => [
+            'username'          => ['Name:', 'text', 'name'],
+            'email'             => ['Email Address:', 'email', 'email'],
+            'phone'             => ['phone number:', 'text', 'phone'],
+            'dob'               => ['date of birth:', 'date', 'date'],
+            'gender'            => ['gender:', 'radio', 'gender'],
+            'experience'        => ['Years of experience:', 'number', 'years'],
+            'consultation_rate' => ['Subscription fee:', 'text', 'fee'],
+            'certifications'    => ['Certificates:', 'textarea', 'text'],
+        ],
+    ],
+];
 
-    $insert = "INSERT INTO coaches (username, email, phone, dob, gender, experience, certifications, hourly_rate, password) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
-    $stmt = mysqli_prepare($con, $insert);
-    mysqli_stmt_bind_param($stmt, "sssssssss", $username, $email, $phone, $dob, $gender, $experience, $certifications, $hourly_rate, $password);
-    $result = mysqli_stmt_execute($stmt);
-
-    if ($result) {
-        // Fetch user info from database after inserting
-        $sql = "SELECT * FROM coaches WHERE email = ?";
-        $stmt = mysqli_prepare($con, $sql);
-        mysqli_stmt_bind_param($stmt, "s", $email);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        if ($row = mysqli_fetch_assoc($result)) {
-            $_SESSION['email'] = $row['email'];
-            $_SESSION['name'] = $row['username'];
-            $_SESSION['user_type'] = 'coaches';
-            $_SESSION['user_info'] = $row;
-
-            header('Location: index.php');
-            exit();
-        }
-    } else {
-        echo "Error: " . mysqli_error($con);
+/** Check one value. Returns an error message, or '' when the value is fine. */
+function check_field(string $kind, string $value): string
+{
+    switch ($kind) {
+        case 'name':
+            return (mb_strlen($value) >= 2 && mb_strlen($value) <= 100) ? '' : 'Name must be 2 to 100 characters.';
+        case 'email':
+            return (filter_var($value, FILTER_VALIDATE_EMAIL) && strlen($value) <= 255) ? '' : 'Please enter a valid email address.';
+        case 'phone':
+            return preg_match('/^\+?[0-9]{9,14}$/', $value) ? '' : 'Phone number must contain 9 to 14 digits.';
+        case 'gender':
+            return in_array($value, ['male', 'female'], true) ? '' : 'Please choose a gender.';
+        case 'positive':
+            return (is_numeric($value) && $value > 0 && $value < 1000) ? '' : 'Weight and height must be positive numbers.';
+        case 'date':
+            $d = DateTime::createFromFormat('Y-m-d', $value);
+            $valid = $d && $d->format('Y-m-d') === $value && $d <= new DateTime('today') && $d >= new DateTime('1900-01-01');
+            return $valid ? '' : 'Please enter a valid date of birth.';
+        case 'years':
+            return (ctype_digit($value) && (int) $value <= 60) ? '' : 'Years of experience must be a whole number from 0 to 60.';
+        case 'fee':
+            return (is_numeric($value) && $value >= 0 && $value < 100000) ? '' : 'Subscription fee must be a number.';
+        case 'goal':
+            return ($value !== '' && mb_strlen($value) <= 255) ? '' : 'Purpose is required (max 255 characters).';
+        case 'text':
+            return ($value !== '' && mb_strlen($value) <= 2000) ? '' : 'Certificates are required.';
     }
+    return '';
 }
 
-
-if (isset($_POST['sign_nutr'])) {
-    $username = $_POST['username'];
-    $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
-    $email = $_POST['email'];
-    $phone = $_POST['phone'];
-    $dob = $_POST['dob'];
-    $gender = $_POST['gender'];
-    $experience = $_POST['experience'];
-    $consultation_rate = $_POST['consultation_rate'];
-    $certifications = $_POST['certifications'];
-
-    $insert = "INSERT INTO nutritionists (username, email, phone, dob, gender, experience, consultation_rate, certifications, password) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-
-    $stmt = mysqli_prepare($con, $insert);
-    mysqli_stmt_bind_param($stmt, "sssssssss", $username, $email, $phone, $dob, $gender, $experience, $consultation_rate, $certifications, $password);
-    $result = mysqli_stmt_execute($stmt);
-
-    if ($result) {
-        // Fetch user info from database after inserting
-        $sql = "SELECT * FROM nutritionists WHERE email = ?";
-        $stmt = mysqli_prepare($con, $sql);
-        mysqli_stmt_bind_param($stmt, "s", $email);
+/** Is this email already used by any kind of account? */
+function email_taken(mysqli $con, string $email): bool
+{
+    foreach (['users', 'coaches', 'nutritionists'] as $table) {
+        $stmt = mysqli_prepare($con, "SELECT 1 FROM $table WHERE email = ? LIMIT 1");
+        mysqli_stmt_bind_param($stmt, 's', $email);
         mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        if ($row = mysqli_fetch_assoc($result)) {
-            $_SESSION['email'] = $row['email'];
-            $_SESSION['name'] = $row['username'];
-            $_SESSION['user_type'] = 'nutritionists';
-            $_SESSION['user_info'] = $row;
-
-            header('Location: index.php');
-            exit();
+        $found = mysqli_num_rows(mysqli_stmt_get_result($stmt)) > 0;
+        mysqli_stmt_close($stmt);
+        if ($found) {
+            return true;
         }
-    } else {
-        echo "Error: " . mysqli_error($con);
     }
+    return false;
 }
 
+// ---------------------------------------------------------------
+// Handle the submitted form
+// ---------------------------------------------------------------
+$errors      = [];
+$active_form = 'form1';
+$old         = [];            // values typed by the visitor (so they do not have to retype)
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    foreach ($roles as $button => $role) {
+        if (!isset($_POST[$button])) {
+            continue;
+        }
+        $active_form = $role['form'];
+
+        if (!csrf_valid()) {
+            http_response_code(400);
+            exit('Invalid request. Please go back, refresh the page and try again.');
+        }
+
+        // Read every field as a plain trimmed string.
+        $data = [];
+        foreach ($role['fields'] as $column => [$label, $type, $kind]) {
+            $raw = $_POST[$column] ?? '';
+            $data[$column] = is_string($raw) ? trim($raw) : '';
+        }
+        $password = (isset($_POST['password']) && is_string($_POST['password'])) ? $_POST['password'] : '';
+        $old = $data;
+
+        // Validate
+        foreach ($role['fields'] as $column => [$label, $type, $kind]) {
+            $message = check_field($kind, $data[$column]);
+            if ($message !== '') {
+                $errors[$message] = true;          // keys = no duplicate messages
+            }
+        }
+        if (strlen($password) < 8) {
+            $errors['Password must be at least 8 characters.'] = true;
+        }
+        if (!$errors && email_taken($con, $data['email'])) {
+            $errors['This email is already registered. Please log in instead.'] = true;
+        }
+
+        // Save
+        if (!$errors) {
+            $table   = $role['table'];
+            $columns = array_keys($role['fields']);
+            $columns[] = 'password';
+            $values  = array_values($data);
+            $values[] = password_hash($password, PASSWORD_BCRYPT);
+
+            $marks = implode(', ', array_fill(0, count($columns), '?'));
+            $stmt  = mysqli_prepare($con, "INSERT INTO $table (" . implode(', ', $columns) . ") VALUES ($marks)");
+            mysqli_stmt_bind_param($stmt, str_repeat('s', count($values)), ...$values);
+
+            try {
+                mysqli_stmt_execute($stmt);
+                mysqli_stmt_close($stmt);
+
+                // Log the new account in.
+                session_regenerate_id(true);
+                $_SESSION['email']     = $data['email'];
+                $_SESSION['name']      = $data['name'] ?? $data['username'];
+                $_SESSION['user_type'] = $table;
+
+                header('Location: index.php');
+                exit;
+            } catch (mysqli_sql_exception $e) {
+                error_log('Sign-up failed: ' . $e->getMessage());
+                $errors['Something went wrong. Please try again.'] = true;
+            }
+        }
+        break;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -140,13 +195,7 @@ if (isset($_POST['sign_nutr'])) {
         <h1>health&care</h1>
         <div>
             <a href="index.php">Homepage</a>
-            <?php if (isset($_SESSION['email'])) { ?>
-                <a href="profile.php">profile</a>
-                <a href="logout.php">logout</a>
-            <?php } else {
-            ?>
-                <a href="login.php">login</a>
-            <?php } ?>
+            <a href="login.php">login</a>
         </div>
     </nav>
     <header>
@@ -154,130 +203,62 @@ if (isset($_POST['sign_nutr'])) {
     </header>
     <h1>Create your account on our website to enjoy all the features</h1>
 
+    <?php if ($errors): ?>
+        <div class="center" style="color:#c0392b;">
+            <?php foreach (array_keys($errors) as $message): ?>
+                <p><?= e($message) ?></p>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
+
     <div class="options">
-        <div class="option" onclick="showForm('form1')">User</div>
-        <div class="option" onclick="showForm('form2')">trainer</div>
-        <div class="option" onclick="showForm('form3')">Nutritionist</div>
+        <?php foreach ($roles as $role): ?>
+            <div class="option" onclick="showForm('<?= e($role['form']) ?>')"><?= e($role['title']) ?></div>
+        <?php endforeach; ?>
     </div>
 
-    <div id="form1" class="form-container" style="display: block;">
-        <h3 class="center">User</h3>
-        <form action="signin.php" method="post" class="form">
-            <label for="name">name:</label>
-            <input type="text" id="name" name="name">
+    <?php foreach ($roles as $button => $role): ?>
+        <?php $prefix = $role['form']; /* makes every id unique, e.g. form2_email */ ?>
+        <div id="<?= e($role['form']) ?>" class="form-container" style="display: <?= $role['form'] === $active_form ? 'block' : 'none' ?>;">
+            <h3 class="center"><?= e($role['title']) ?></h3>
+            <form action="signin.php" method="post" class="form">
+                <?= csrf_field() ?>
 
-            <label for="email">Email Address:</label>
-            <input type="email" id="email" name="email">
+                <?php foreach ($role['fields'] as $column => [$label, $type, $kind]): ?>
+                    <?php
+                    $id  = $prefix . '_' . $column;
+                    $val = ($role['form'] === $active_form) ? ($old[$column] ?? '') : '';
+                    ?>
+                    <?php if ($type === 'radio'): ?>
+                        <div style="display: flex;">
+                            <label><?= e($label) ?></label>
+                            <input type="radio" id="<?= e($id) ?>_male" name="<?= e($column) ?>" value="male" <?= $val === 'male' ? 'checked' : '' ?>>
+                            <label for="<?= e($id) ?>_male">male</label>
+                            <input type="radio" id="<?= e($id) ?>_female" name="<?= e($column) ?>" value="female" <?= $val === 'female' ? 'checked' : '' ?>>
+                            <label for="<?= e($id) ?>_female">female</label>
+                        </div>
+                    <?php elseif ($type === 'textarea'): ?>
+                        <label for="<?= e($id) ?>"><?= e($label) ?></label>
+                        <textarea id="<?= e($id) ?>" name="<?= e($column) ?>" maxlength="2000" cols="30" rows="10"><?= e($val) ?></textarea>
+                    <?php else: ?>
+                        <label for="<?= e($id) ?>"><?= e($label) ?></label>
+                        <input type="<?= e($type) ?>" id="<?= e($id) ?>" name="<?= e($column) ?>" value="<?= e($val) ?>" <?= $type === 'number' ? 'min="0" step="any"' : '' ?>>
+                    <?php endif; ?>
+                <?php endforeach; ?>
 
-            <label for="phone">phone number:</label>
-            <input type="text" id="phone" name="phone">
+                <label for="<?= e($prefix) ?>_password">Password (at least 8 characters):</label>
+                <input type="password" id="<?= e($prefix) ?>_password" name="password" minlength="8">
 
-            <div style="display: flex;">
-                <label for="gender">gender:</label>
-                <input type="radio" id="male" name="gender" value="male"><label for="male">male</label>
-                <input type="radio" id="female" name="gender" value="female"><label for="female">female</label>
-            </div>
-
-            <label for="weight">weight:</label>
-            <input type="number" id="weight" name="weight">
-
-            <label for="height">height:</label>
-            <input type="number" id="height" name="height">
-
-            <label for="dob">date of birth:</label>
-            <input type="date" id="dob" name="dob">
-
-            <label for="goal">Purpose (weight loss, muscle building, etc.):</label>
-            <textarea id="goal" name="goal" cols="30" rows="10"></textarea>
-
-            <label for="password">Password:</label>
-            <input type="password" id="password" name="password">
-
-            <button type="submit" name="sign_user">Sign</button>
-        </form>
-    </div>
-
-    <div id="form2" class="form-container" style="display: none;">
-        <h3 class="center">trainer</h3>
-        <form action="signin.php" method="post" class="form">
-            <label for="username">Name:</label>
-            <input type="text" id="username" name="username">
-
-            <label for="email">Email Address:</label>
-            <input type="email" id="email" name="email">
-
-            <label for="phone">phone number:</label>
-            <input type="text" id="phone" name="phone">
-
-            <label for="dob">date of birth:</label>
-            <input type="date" id="dob" name="dob">
-
-            <div style="display: flex;">
-                <label for="gender">gender:</label>
-                <input type="radio" id="male" name="gender" value="male"><label for="male">male</label>
-                <input type="radio" id="female" name="gender" value="female"><label for="female">female</label>
-            </div>
-
-            <label for="experience">Years of experience:</label>
-            <input type="number" id="experience" name="experience">
-
-            <label for="certifications">Certificates:</label>
-            <textarea id="certifications" name="certifications"></textarea>
-
-            <label for="hourly_rate">Subscription fee:</label>
-            <input type="text" id="hourly_rate" name="hourly_rate">
-
-            <label for="password">Password:</label>
-            <input type="password" id="password" name="password">
-
-            <button type="submit" name="sign_coach">Sign</button>
-        </form>
-    </div>
-
-    <div id="form3" class="form-container" style="display: none;">
-        <h3 class="center">Nutritionist</h3>
-        <form action="signin.php" method="post" class="form">
-            <label for="username">Name:</label>
-            <input type="text" id="username" name="username">
-
-            <label for="email">Email Address:</label>
-            <input type="email" id="email" name="email">
-
-            <label for="phone">phone number:</label>
-            <input type="text" id="phone" name="phone">
-
-            <label for="dob">date of birth:</label>
-            <input type="date" id="dob" name="dob">
-
-            <div style="display: flex;">
-                <label for="gender">gender:</label>
-                <input type="radio" id="male" name="gender" value="male"><label for="male">male</label>
-                <input type="radio" id="female" name="gender" value="female"><label for="female">female</label>
-            </div>
-
-            <label for="experience">Years of experience:</label>
-            <input type="number" id="experience" name="experience">
-
-            <label for="consultation_rate">Subscription fee:</label>
-            <input type="text" id="consultation_rate" name="consultation_rate">
-
-            <label for="certifications">Certificates:</label>
-            <textarea id="certifications" name="certifications"></textarea>
-
-            <label for="password">Password:</label>
-            <input type="password" id="password" name="password">
-
-            <button type="submit" name="sign_nutr">Sign</button>
-        </form>
-    </div>
+                <button type="submit" name="<?= e($button) ?>">Sign</button>
+            </form>
+        </div>
+    <?php endforeach; ?>
 
     <p class="center">you already have account? <a href="login.php">login</a></p>
     <script>
         function showForm(formId) {
             // Hide all forms
-            const forms = document.querySelectorAll('.form-container');
-            forms.forEach(form => form.style.display = 'none');
-
+            document.querySelectorAll('.form-container').forEach(form => form.style.display = 'none');
             // Show the selected form
             document.getElementById(formId).style.display = 'block';
         }

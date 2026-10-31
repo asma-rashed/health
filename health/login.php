@@ -1,50 +1,46 @@
 <?php
 session_start();
-include 'config.php';
+require_once 'config.php';
 
-if (isset($_POST['login'])) {
-    $email = $_POST['email'];
-    $password = $_POST['password'];
-
-    $tables = ['users', 'coaches', 'nutritionists'];
-    $user_found = false;
-
-    foreach ($tables as $table) {
-        $sql = "SELECT * FROM $table WHERE email = ?";
-        $stmt = mysqli_prepare($con, $sql);
-        mysqli_stmt_bind_param($stmt, "s", $email);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-
-        if (mysqli_num_rows($result) > 0) {
-            $row = mysqli_fetch_array($result);
-            $stored_hash = $row['password'];
-
-            if (password_verify($password, $stored_hash)) {
-                $user_found = true;
-
-                $_SESSION['email'] = $row['email'];
-                $_SESSION['name'] = $row['name'];
-                $_SESSION['user_type'] = $table;
-                $_SESSION['user_info'] = $row;
-                $logged_user_email = $_SESSION['email'];
-                header('location:index.php');
-                exit();
-            }
-        }
-
-        mysqli_stmt_close($stmt);
-
-        if ($user_found) {
-            break;
-        }
-    }
-
-    if (!$user_found) {
-        header('location:login.php');
-    }
+// Already logged in? Go to the profile page.
+if (!empty($_SESSION['email'])) {
+    header('Location: profile.php');
+    exit;
 }
 
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
+    $email    = (isset($_POST['email']) && is_string($_POST['email'])) ? trim($_POST['email']) : '';
+    $password = (isset($_POST['password']) && is_string($_POST['password'])) ? $_POST['password'] : '';
+
+    // The same email may belong to a user, a coach or a nutritionist: check each table.
+    $tables = ['users', 'coaches', 'nutritionists'];
+
+    foreach ($tables as $table) {
+        $stmt = mysqli_prepare($con, "SELECT * FROM $table WHERE email = ?");
+        mysqli_stmt_bind_param($stmt, 's', $email);
+        mysqli_stmt_execute($stmt);
+        $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+        mysqli_stmt_close($stmt);
+
+        if ($row && password_verify($password, $row['password'])) {
+            // New session id after login (prevents session fixation).
+            session_regenerate_id(true);
+
+            
+            $_SESSION['email']     = $row['email'];
+            $_SESSION['name']      = $row['name'] ?? $row['username'];   // users have "name", coaches have "username"
+            $_SESSION['user_type'] = $table;
+
+            header('Location: index.php');
+            exit;
+        }
+    }
+
+    // One message for both "unknown email" and "wrong password".
+    $error = 'Incorrect email or password.';
+}
 ?>
 
 <!DOCTYPE html>
@@ -75,9 +71,12 @@ if (isset($_POST['login'])) {
 
     <div>
         <h1>login</h1>
+        <?php if ($error !== ''): ?>
+            <p class="center" style="color:#c0392b;"><?= e($error) ?></p>
+        <?php endif; ?>
         <form action="login.php" method="post" class="form">
-            <input type="email" name="email" placeholder="email address">
-            <input type="password" name="password" placeholder="Password">
+            <input type="email" name="email" placeholder="email address" required value="<?= e($_POST['email'] ?? '') ?>">
+            <input type="password" name="password" placeholder="Password" required>
             <button type="submit" name="login">login</button>
         </form>
     </div>

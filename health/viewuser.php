@@ -1,142 +1,175 @@
 <?php
 session_start();
-include 'config.php';
-$id = $_GET['id'];
-$logged_in_email = $_SESSION['email'] ?? null;
-$nutr_id = $_GET['id'];
-$user_type = $_SESSION['user_type'];
-if (isset($_SESSION['email'])) {
-    $email = $_SESSION['email'];
-    $sql = "SELECT * FROM users WHERE email = '$email'";
-    $query = mysqli_query($con, $sql);
+require_once 'config.php';
 
-    if ($query && mysqli_num_rows($query) > 0) {
-        $row = mysqli_fetch_assoc($query);
-        $id = $row['id'];
-        $user_email = $row['email'];
-    } else {
-    }
+// Only logged-in coaches / nutritionists may open this page.
+require_login(['coaches', 'nutritionists']);
+$my_email = $_SESSION['email'];       // who is logged in (comes from the session, never from the form)
+$my_type  = $_SESSION['user_type'];   // 'coaches' or 'nutritionists'
+
+// ---------------------------------------------------------------
+// 1) Load the user being viewed (the id in the URL must be an integer)
+// ---------------------------------------------------------------
+$view_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+if (!$view_id) {
+    header('Location: profile.php');
+    exit;
 }
-if (isset($_POST['send_message'])) {
-    $sender_email = $_POST['sender_email'];
-    $receiver_email = $_POST['receiver_email'];
-    $role = $_POST['role'];
-    $message = $_POST['message'];
-    $time = date('Y-m-d H:i:s');
 
-    $insert = "INSERT INTO messages (sender_email, receiver_email, role, message, time) 
-                VALUES ('$sender_email', '$receiver_email', '$role', '$message', '$time')";
-    $result = mysqli_query($con, $insert);
+$stmt = mysqli_prepare($con, 'SELECT id, name, email, gender, weight, height, date_of_birth, goal FROM users WHERE id = ?');
+mysqli_stmt_bind_param($stmt, 'i', $view_id);
+mysqli_stmt_execute($stmt);
+$viewed = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+mysqli_stmt_close($stmt);
 
-    if ($result) {
-        $receiver_sql = "SELECT id FROM users WHERE email = '$receiver_email'";
-        $receiver_query = mysqli_query($con, $receiver_sql);
+if (!$viewed) {
+    http_response_code(404);
+    exit('User not found.');
+}
+$user_email = $viewed['email'];
 
-        if ($receiver_query && mysqli_num_rows($receiver_query) > 0) {
-            $receiver_row = mysqli_fetch_assoc($receiver_query);
-            $receiver_id = $receiver_row['id'];
+// A coach / nutritionist can only see users who subscribed to them.
+if (!is_subscribed($con, $my_type, $my_email, $user_email)) {
+    http_response_code(403);
+    exit('You do not have access to this user.');
+}
 
-            header("Location: viewuser.php?id=$receiver_id#redirect1");
+// ---------------------------------------------------------------
+// 2) What kind of plan does this provider manage?
+//    (these names come from this fixed list, never from user input)
+// ---------------------------------------------------------------
+$plans = [
+    'coaches' => [
+        'table'       => 'exercises',
+        'owner'       => 'coach_email',
+        'heading'     => 'Exercises Table',
+        'add_heading' => 'Add Exercises plan',
+        'column'      => 'exercise',
+    ],
+    'nutritionists' => [
+        'table'       => 'diet',
+        'owner'       => 'nutr_email',
+        'heading'     => 'Diet Table',
+        'add_heading' => 'Add the appropriate diet plan',
+        'column'      => 'diet',
+    ],
+];
+$plan_cfg = $plans[$my_type];
+$days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+// ---------------------------------------------------------------
+// 3) Handle form submissions
+// ---------------------------------------------------------------
+$msg_error  = '';
+$plan_error = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    if (!csrf_valid()) {
+        http_response_code(400);
+        exit('Invalid request. Please go back, refresh the page and try again.');
+    }
+
+    // ---- Send a chat message --------------------------------------
+    if (isset($_POST['send_message'])) {
+        $message = (isset($_POST['message']) && is_string($_POST['message'])) ? trim($_POST['message']) : '';
+
+        if ($message === '') {
+            $msg_error = 'Message cannot be empty.';
+        } elseif (mb_strlen($message) > 255) {          // messages.message is varchar(255)
+            $msg_error = 'Message is too long (max 255 characters).';
+        } else {
+            $role   = role_label($my_type);
+            $time   = date('Y-m-d H:i:s');
+            $unread = 0;
+
+            // sender = the logged-in person, receiver = the viewed user
+            $stmt = mysqli_prepare(
+                $con,
+                'INSERT INTO messages (sender_email, receiver_email, role, message, time, is_read) VALUES (?, ?, ?, ?, ?, ?)'
+            );
+            mysqli_stmt_bind_param($stmt, 'sssssi', $my_email, $user_email, $role, $message, $time, $unread);
+            mysqli_stmt_execute($stmt);
+            mysqli_stmt_close($stmt);
+
+            header("Location: viewuser.php?id=$view_id#redirect1");
             exit;
         }
-    } else {
-        echo "Error: " . mysqli_error($con);
     }
-}
-if (isset($_POST['add_diet'])) {
-    $user_email = $_POST['user_email'];
-    $nutr_email = $_POST['nutr_email'];
-    $sunday = $_POST['sunday'];
-    $monday = $_POST['monday'];
-    $tuesday = $_POST['tuesday'];
-    $wednesday = $_POST['wednesday'];
-    $thursday = $_POST['thursday'];
-    $friday = $_POST['friday'];
-    $saturday = $_POST['saturday'];
 
+    // ---- Create or update the plan --------------------------------
+    if (isset($_POST['save_plan'])) {
+        $values = [];
+        foreach ($days as $day) {
+            $value = (isset($_POST[$day]) && is_string($_POST[$day])) ? trim($_POST[$day]) : '';
+            if (mb_strlen($value) > 500) {              // exercises columns are varchar(500)
+                $plan_error = 'Each day can contain at most 500 characters.';
+                break;
+            }
+            $values[] = $value;
+        }
 
+        if ($plan_error === '') {
+            $table = $plan_cfg['table'];
+            $owner = $plan_cfg['owner'];
 
-    $insert = "INSERT INTO diet (sunday, monday, tuesday, wednesday, thursday, friday, saturday, user_email, nutr_email) 
-                VALUES ('$sunday', '$monday', '$tuesday', '$wednesday', '$thursday', '$friday', '$saturday','$user_email','$nutr_email')";
-    $result = mysqli_query($con, $insert);
+            // Does this provider already have a plan for this user?
+            $stmt = mysqli_prepare($con, "SELECT id FROM $table WHERE user_email = ? AND $owner = ? LIMIT 1");
+            mysqli_stmt_bind_param($stmt, 'ss', $user_email, $my_email);
+            mysqli_stmt_execute($stmt);
+            $exists = mysqli_num_rows(mysqli_stmt_get_result($stmt)) > 0;
+            mysqli_stmt_close($stmt);
 
-    if ($result) {
+            if ($exists) {
+                // The WHERE clause uses the session email, so a provider can only edit their own plan.
+                $set  = implode(', ', array_map(function ($day) { return "$day = ?"; }, $days));
+                $stmt = mysqli_prepare($con, "UPDATE $table SET $set WHERE user_email = ? AND $owner = ?");
+                $params = array_merge($values, [$user_email, $my_email]);
+            } else {
+                $cols = implode(', ', $days);
+                $marks = implode(', ', array_fill(0, count($days), '?'));
+                $stmt = mysqli_prepare($con, "INSERT INTO $table ($cols, user_email, $owner) VALUES ($marks, ?, ?)");
+                $params = array_merge($values, [$user_email, $my_email]);
+            }
+            mysqli_stmt_bind_param($stmt, str_repeat('s', count($params)), ...$params);
+            mysqli_stmt_execute($stmt);
+            mysqli_stmt_close($stmt);
 
-        header('Location: profile.php');
-        exit;
-    } else {
-        echo "Error: " . mysqli_error($con);
-    }
-}
-if (isset($_POST['add_ex'])) {
-    $user_email = $_POST['user_email'];
-    $coach_email = $_POST['coach_email'];
-    $sunday = $_POST['sunday'];
-    $monday = $_POST['monday'];
-    $tuesday = $_POST['tuesday'];
-    $wednesday = $_POST['wednesday'];
-    $thursday = $_POST['thursday'];
-    $friday = $_POST['friday'];
-    $saturday = $_POST['saturday'];
-
-
-
-    $insert = "INSERT INTO exercises (sunday, monday, tuesday, wednesday, thursday, friday, saturday, user_email, coach_email) 
-                VALUES ('$sunday', '$monday', '$tuesday', '$wednesday', '$thursday', '$friday', '$saturday','$user_email','$coach_email')";
-    $result = mysqli_query($con, $insert);
-
-    if ($result) {
-        $receiver_sql = "SELECT id FROM users WHERE email = '$user_email'";
-        $receiver_query = mysqli_query($con, $receiver_sql);
-
-        if ($receiver_query && mysqli_num_rows($receiver_query) > 0) {
-            $receiver_row = mysqli_fetch_assoc($receiver_query);
-            $receiver_id = $receiver_row['id'];
-
-            header("Location: viewuser.php?id=$receiver_id#redirect2");
+            header("Location: viewuser.php?id=$view_id#redirect2");
             exit;
         }
-    } else {
-        echo "Error: " . mysqli_error($con);
     }
-
 }
-if (isset($_POST['edit_table'])) {
-    $id = $_POST['id'];
-    $sunday = $_POST['sunday'];
-    $monday = $_POST['monday'];
-    $tuesday = $_POST['tuesday'];
-    $wednesday = $_POST['wednesday'];
-    $thursday = $_POST['thursday'];
-    $friday = $_POST['friday'];
-    $saturday = $_POST['saturday'];
 
+// ---------------------------------------------------------------
+// 4) Data shown on the page
+// ---------------------------------------------------------------
 
-    $sql = "UPDATE exercises SET sunday='$sunday', monday='$monday', tuesday='$tuesday',wednesday = '$wednesday', thursday='$thursday', friday='$friday',saturday = '$saturday'  WHERE id='$id'";
+// Chat between the logged-in provider and the viewed user
+$stmt = mysqli_prepare(
+    $con,
+    'SELECT sender_email, message, time FROM messages
+     WHERE (sender_email = ? AND receiver_email = ?) OR (sender_email = ? AND receiver_email = ?)
+     ORDER BY time ASC, id ASC'
+);
+mysqli_stmt_bind_param($stmt, 'ssss', $my_email, $user_email, $user_email, $my_email);
+mysqli_stmt_execute($stmt);
+$messages = mysqli_fetch_all(mysqli_stmt_get_result($stmt), MYSQLI_ASSOC);
+mysqli_stmt_close($stmt);
 
-    mysqli_query($con, $sql);
+// Existing plan (if any)
+$stmt = mysqli_prepare($con, "SELECT * FROM {$plan_cfg['table']} WHERE user_email = ? AND {$plan_cfg['owner']} = ? LIMIT 1");
+mysqli_stmt_bind_param($stmt, 'ss', $user_email, $my_email);
+mysqli_stmt_execute($stmt);
+$plan = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+mysqli_stmt_close($stmt);
 
-    
-    header("location: viewuser.php?id=$id");
+// Age and gender label for the card
+$age = '-';
+if (!empty($viewed['date_of_birth'])) {
+    $age = (new DateTime())->diff(new DateTime($viewed['date_of_birth']))->y;
 }
-if (isset($_POST['edit_diet'])) {
-    $id = $_POST['id'];
-    $sunday = $_POST['sunday'];
-    $monday = $_POST['monday'];
-    $tuesday = $_POST['tuesday'];
-    $wednesday = $_POST['wednesday'];
-    $thursday = $_POST['thursday'];
-    $friday = $_POST['friday'];
-    $saturday = $_POST['saturday'];
-
-
-    $sql = "UPDATE diet SET sunday='$sunday', monday='$monday', tuesday='$tuesday',wednesday = '$wednesday', thursday='$thursday', friday='$friday',saturday = '$saturday'  WHERE id='$id'";
-
-    mysqli_query($con, $sql);
-
-    
-    header("location: viewuser.php?id=$id");
-}
+$gender_ar = ['male' => 'ذكر', 'female' => 'أنثى'][$viewed['gender'] ?? ''] ?? '';
 ?>
 
 <!DOCTYPE html>
@@ -157,279 +190,93 @@ if (isset($_POST['edit_diet'])) {
         <h1>health&care</h1>
         <div>
             <a href="index.php">Homepage</a>
-            <?php if (isset($_SESSION['email'])) { ?>
-                <a href="profile.php">profile</a>
-                <a href="logout.php">logout</a>
-            <?php } else {
-            ?>
-                <a href="login.php">login</a>
-            <?php } ?>
+            <a href="profile.php">profile</a>
+            <a href="logout.php">logout</a>
         </div>
     </nav>
-    <?php
-    $sql = "select * from users WHERE id = '$id'";
-    $result = mysqli_query($con, $sql);
-    if ($result) {
-        while ($row_user = mysqli_fetch_assoc($result)) {
-            $birthdate = $row_user['date_of_birth'];
-            $birthDateTime = new DateTime($birthdate);
-            $currentDate = new DateTime();
-            $age = $currentDate->diff($birthDateTime)->y;
-            $subscubed_user = $row_user['email'];
-            $gender = $row_user['gender'];
-            if ($gender === "male") {
-                $gender_ar = "ذكر";
-            } elseif ($gender === "female") {
-                $gender_ar = "أنثى";
-            } else {
-            }
-    ?>
-            <div class="card" style="width: 18rem;">
-                <img class="card-img-top" src="images/user-icon.png" alt="Card image cap">
-                <div class="card-body">
-                    <h5 class="card-title"><?= $row_user['name'] ?></h5>
-                    <div style="display: flex ; justify-content:space-evenly">
-                        <p class="card-text"> age:<?= $age ?></p>
-                        <p class="card-text"> gender:<?= $gender_ar ?></p>
+
+    <!-- User card -->
+    <div class="card" style="width: 18rem;">
+        <img class="card-img-top" src="images/user-icon.png" alt="User icon">
+        <div class="card-body">
+            <h5 class="card-title"><?= e($viewed['name']) ?></h5>
+            <div style="display: flex ; justify-content:space-evenly">
+                <p class="card-text"> age: <?= e($age) ?></p>
+                <p class="card-text"> gender: <?= e($gender_ar) ?></p>
+            </div>
+            <p class="card-text">weight: <?= e($viewed['weight']) ?></p>
+            <p class="card-text">height: <?= e($viewed['height']) ?></p>
+            <p class="card-text">purpose: <?= e($viewed['goal']) ?></p>
+        </div>
+    </div>
+
+    <!-- Chat with this user -->
+    <div class="messages">
+        <h2 class="center"> messages from user <?= e($viewed['name']) ?></h2>
+
+        <div>
+            <?php foreach ($messages as $row): ?>
+                <?php if ($row['sender_email'] === $my_email): ?>
+                    <div class="container">
+                        <span class="namespan"><?= e($row['sender_email']) ?></span>
+                        <p><?= e($row['message']) ?></p>
+                        <span class="time-right"><?= e($row['time']) ?></span>
                     </div>
-                    <p class="card-text">weight: <?= $row_user['weight'] ?></p>
-                    <p class="card-text">height: <?= $row_user['height'] ?></p>
-                    <p class="card-text">purpose: <?= $row_user['goal'] ?></p>
+                <?php else: ?>
+                    <div class="container darker">
+                        <span class="right"><?= e($row['sender_email']) ?></span>
+                        <p><?= e($row['message']) ?></p>
+                        <span class="time-left"><?= e($row['time']) ?></span>
+                    </div>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        </div>
 
-                </div>
-            </div>
+        <!-- Message sending form -->
+        <div class="send_message" id="redirect1">
+            <?php if ($msg_error !== ''): ?>
+                <p style="color:#c0392b;"><?= e($msg_error) ?></p>
+            <?php endif; ?>
+            <form action="viewuser.php?id=<?= (int) $view_id ?>" method="post">
+                <?= csrf_field() ?>
+                <input id="redirect" type="text" name="message" maxlength="255" required placeholder="write your message here...">
+                <button type="submit" name="send_message" style="border-radius: none;">
+                    <i class="fa fa-send" style="font-size:20px"></i>
+                </button>
+            </form>
+        </div>
+    </div>
 
-            <?php
-            $sql = "SELECT DISTINCT sender_email FROM messages WHERE receiver_email = '$email'";
-            $result = mysqli_query($con, $sql);
-            if ($result) {
-                while ($row = mysqli_fetch_assoc($result)) {
-                    $sender_email_user = $row['sender_email'];
-                    $user_sql = "SELECT * FROM users WHERE email = '$subscubed_user'";
-                    $user_result = mysqli_query($con, $user_sql);
-                    if ($user_result) {
-                        while ($user_information = mysqli_fetch_assoc($user_result)) {
-            ?>
-                            <div class="messages">
-                                <h2 class="center"> messages from user <?= $user_information['name'] ?></h2>
+    <!-- Exercise plan (coach) or diet plan (nutritionist) -->
+    <div class="diet-table-container" id="redirect2">
+        <h1><?= e($plan ? $plan_cfg['heading'] : $plan_cfg['add_heading']) ?></h1>
 
+        <?php if ($plan_error !== ''): ?>
+            <p style="color:#c0392b;"><?= e($plan_error) ?></p>
+        <?php endif; ?>
 
-                                <div>
-                                    <?php
-                                    // Fetch all messages between the logged-in user and the sender
-                                    $sql = "SELECT * FROM messages 
-            WHERE (sender_email = '$sender_email_user' AND receiver_email = '$email') 
-                OR (sender_email = '$email' AND receiver_email = '$sender_email_user') 
-            ORDER BY time ASC"; // Sort messages by time in ascending order
+        <form action="viewuser.php?id=<?= (int) $view_id ?>" method="post">
+            <?= csrf_field() ?>
+            <table class="diet-table">
+                <thead>
+                    <tr>
+                        <th>the day</th>
+                        <th><?= e($plan_cfg['column']) ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($days as $day): ?>
+                        <tr>
+                            <th><?= e($day) ?></th>
+                            <td><input type="text" name="<?= e($day) ?>" maxlength="500" value="<?= e($plan[$day] ?? '') ?>"></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <button type="submit" class="button" name="save_plan"><?= $plan ? 'update' : 'save' ?></button>
+        </form>
+    </div>
 
-                                    $result = mysqli_query($con, $sql);
-
-                                    if ($result) {
-                                        while ($row = mysqli_fetch_assoc($result)) {
-
-                                            if ($row['sender_email'] == $email) {
-                                    ?>
-                                                <div class="container">
-                                                    <span class="namespan"><?= $row['sender_email'] ?></span>
-                                                    <p><?= $row['message'] ?></p>
-                                                    <span class="time-right"><?= $row['time'] ?></span>
-                                                </div>
-                                            <?php
-                                            } else {
-
-                                            ?>
-                                                <div class="container darker">
-                                                    <span class="right"><?= $row['sender_email'] ?></span>
-                                                    <p><?= $row['message'] ?></p>
-                                                    <span class="time-left"><?= $row['time'] ?></span>
-                                                </div>
-                                    <?php
-                                            }
-                                        }
-                                    }
-                                    ?>
-                                </div>
-
-                                <!-- Message Sending Form -->
-                                <div class="send_message" id="redirect1">
-                                    <form action="viewuser.php" method="post">
-                                        <input id="redirect" type="text" name="message" placeholder="write your message here...">
-                                        <input type="hidden" name="sender_email" value="<?= $email ?>">
-                                        <input type="hidden" name="role" value="<?= $user_type ?>">
-                                        <input type="hidden" name="receiver_email" value="<?= $sender_email_user ?>">
-                                        <button type="submit" name="send_message" style="border-radius: none;">
-                                            <i class="fa fa-send" style="font-size:20px"></i>
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-            <?php
-                        }
-                    }
-                }
-            }
-            ?>
-    <?php
-        }
-    } ?>
-    <?php
-    if ($user_type == 'nutritionists'):
-        
-    ?>
-    <?php
-    $check_sql = "SELECT * FROM diet WHERE user_email = '$sender_email_user'";
-        $check_result = mysqli_query($con, $check_sql);
-
-        if ($check_result && mysqli_num_rows($check_result) > 0) {
-            $diet = mysqli_fetch_assoc($check_result);
-        ?>
-            <div class="diet-table-container">
-                <h1>Exercises Table</h1>
-                <form action="viewuser.php" method="post">
-                    <table class="diet-table">
-                            <thead>
-                                <tr>
-                                    <th>the day</th>
-                                    <th>diet</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <th>sunday</th>
-                                    <td><input type="text" name="sunday" value="<?= $diet['sunday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>monday</th>
-                                    <td><input type="text" name="monday" value="<?= $diet['monday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>tuesday</th>
-                                    <td><input type="text" name="tuesday" value="<?= $diet['tuesday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>wednesday</th>
-                                    <td><input type="text" name="wednesday" value="<?= $diet['wednesday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>thursday</th>
-                                    <td><input type="text" name="thursday" value="<?= $diet['thursday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>friday</th>
-                                    <td><input type="text" name="friday" value="<?= $diet['friday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>saturday</th>
-                                    <td><input type="text" name="saturday" value="<?= $diet['saturday'] ?>"></td>
-                                </tr>
-                            </tbody>
-                        
-
-                    </table>
-                    <input type="hidden" name="id" value="<?= $diet['id']?>">
-                    <button type="submit" class="button" name="edit_diet">update</button>
-                </form>
-            </div>
-        <?php
-        } else {
-            // If no exercise plan exists, show the form
-        ?>
-            <div>
-                <h1>Add the appropriate diet plan</h1>
-                <form action="viewuser.php" method="post" class="form" id="redirect2">
-                    <input type="text" name="sunday" placeholder="sunday">
-                    <input type="text" name="monday" placeholder=" monday">
-                    <input type="text" name="tuesday" placeholder=" tuesday">
-                    <input type="text" name="wednesday" placeholder="wednesday">
-                    <input type="text" name="thursday" placeholder=" thursday">
-                    <input type="text" name="friday" placeholder=" friday">
-                    <input type="text" name="saturday" placeholder=" saturday">
-                    <input type="hidden" name="user_email" value="<?= $sender_email_user ?>">
-                    <input type="hidden" name="nutr_email" value="<?= $email ?>">
-                    <input type="submit" name="add_diet">
-                </form>
-            </div>
-    <?php }?>
-
-        <?php
-    elseif ($user_type == 'coaches'):
-        $check_sql = "SELECT * FROM exercises WHERE user_email = '$sender_email_user'";
-        $check_result = mysqli_query($con, $check_sql);
-
-        if ($check_result && mysqli_num_rows($check_result) > 0) {
-            $exercise = mysqli_fetch_assoc($check_result); // Fetch the existing plan
-        ?>
-            <div class="diet-table-container">
-                <h1>Exercises Table</h1>
-                <form action="viewuser.php" method="post">
-                    <table class="diet-table">
-                            <thead>
-                                <tr>
-                                    <th>the day</th>
-                                    <th>exercise</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <th>sunday</th>
-                                    <td><input type="text" name="sunday" value="<?= $exercise['sunday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>monday</th>
-                                    <td><input type="text" name="monday" value="<?= $exercise['monday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>tuesday</th>
-                                    <td><input type="text" name="tuesday" value="<?= $exercise['tuesday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>wednesday</th>
-                                    <td><input type="text" name="wednesday" value="<?= $exercise['wednesday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>thursday</th>
-                                    <td><input type="text" name="thursday" value="<?= $exercise['thursday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>friday</th>
-                                    <td><input type="text" name="friday" value="<?= $exercise['friday'] ?>"></td>
-                                </tr>
-                                <tr>
-                                    <th>saturday</th>
-                                    <td><input type="text" name="saturday" value="<?= $exercise['saturday'] ?>"></td>
-                                </tr>
-                            </tbody>
-                        
-
-                    </table>
-                    <input type="hidden" name="id" value="<?= $exercise['id']?>">
-                    <button type="submit" class="button" name="edit_table">update</button>
-                </form>
-            </div>
-        <?php
-        } else {
-            // If no exercise plan exists, show the form
-        ?>
-            <div>
-                <h1>Add Exercises plan</h1>
-                <form action="viewuser.php" method="post" class="form" id="redirect2">
-                    <input type="text" name="sunday" placeholder="sunday">
-                    <input type="text" name="monday" placeholder=" monday">
-                    <input type="text" name="tuesday" placeholder=" tuesday">
-                    <input type="text" name="wednesday" placeholder=" wednesday">
-                    <input type="text" name="thursday" placeholder=" thursday">
-                    <input type="text" name="friday" placeholder=" friday">
-                    <input type="text" name="saturday" placeholder=" saturday">
-                    <input type="hidden" name="user_email" value="<?= $sender_email_user ?>">
-                    <input type="hidden" name="coach_email" value="<?= $email ?>">
-                    <input type="submit" name="add_ex">
-                </form>
-            </div>
-    <?php }
-    endif; ?>
-    <script>
-
-    </script>
     <footer>
         <div>
             <p>riyadh, Saudi Arabia</p>

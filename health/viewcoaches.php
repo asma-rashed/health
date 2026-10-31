@@ -1,50 +1,78 @@
 <?php
 session_start();
-include 'config.php';
-$id = $_GET['id'];
+require_once 'config.php';
 
-$logged_in_email = $_SESSION['email'] ?? null;
-$coach_id = $_GET['id'];
-if (isset($_SESSION['email'])) {
-    $email = $_SESSION['email'];
-    $sql = "SELECT * FROM users WHERE email = '$email'";
-    $query = mysqli_query($con, $sql);
+// This page is public (anyone can look at a coach), but only logged-in
+// normal users can subscribe.
+$me_email = $_SESSION['email'] ?? null;
+$is_user  = $me_email !== null && ($_SESSION['user_type'] ?? '') === 'users';
 
-    if ($query && mysqli_num_rows($query) > 0) {
-        $row = mysqli_fetch_assoc($query);
-        $id = $row['id'];
-        $user_email = $row['email'];
-    } else {
-    }
+// The id in the URL must be a whole number.
+$provider_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+if (!$provider_id) {
+    header('Location: index.php');
+    exit;
 }
-if (isset($_POST['submit'])) {
-    $coach_email = $_POST['coach_email'];
-    $user_email = $user_email;
-    $coach_id = $_GET['id'];
 
+$stmt = mysqli_prepare($con, 'SELECT * FROM coaches WHERE id = ?');
+mysqli_stmt_bind_param($stmt, 'i', $provider_id);
+mysqli_stmt_execute($stmt);
+$provider = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+mysqli_stmt_close($stmt);
 
-    $check_query = "SELECT * FROM coach_subscription WHERE coach_email = '$coach_email' AND user_email = '$user_email'";
-    $check_result = mysqli_query($con, $check_query);
+if (!$provider) {
+    http_response_code(404);
+    exit('Coach not found.');
+}
 
-    if (mysqli_num_rows($check_result) > 0) {
+// Does the logged-in user already have a coach? (one at a time)
+$already_subscribed = false;
+if ($is_user) {
+    $stmt = mysqli_prepare($con, 'SELECT 1 FROM coach_subscription WHERE user_email = ? LIMIT 1');
+    mysqli_stmt_bind_param($stmt, 's', $me_email);
+    mysqli_stmt_execute($stmt);
+    $already_subscribed = mysqli_num_rows(mysqli_stmt_get_result($stmt)) > 0;
+    mysqli_stmt_close($stmt);
+}
 
-        echo "<script>
-                alert('You are already subscribed to this coach.');
-                window.location.href = 'viewcoaches.php?id=$coach_id';
-                </script>";
+// ---------------------------------------------------------------
+// Subscribe
+// ---------------------------------------------------------------
+$notice = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit'])) {
+
+    if (!csrf_valid()) {
+        http_response_code(400);
+        exit('Invalid request. Please go back, refresh the page and try again.');
+    }
+    if (!$is_user) {
+        header('Location: login.php');
+        exit;
+    }
+
+    if ($already_subscribed) {
+        $notice = 'You are already subscribed to a coach.';
     } else {
+        // The coach's email is read from the database, not from the form.
+        $stmt = mysqli_prepare($con, 'INSERT INTO coach_subscription (coach_email, user_email) VALUES (?, ?)');
+        mysqli_stmt_bind_param($stmt, 'ss', $provider['email'], $me_email);
+        $ok = mysqli_stmt_execute($stmt);
+        mysqli_stmt_close($stmt);
 
-        $insert = "INSERT INTO coach_subscription (coach_email, user_email) VALUES ('$coach_email', '$user_email')";
-        $result = mysqli_query($con, $insert);
-
-        if ($result) {
-            header("Location: profile.php?success=1");
+        if ($ok) {
+            header('Location: profile.php?success=1');
             exit;
-        } else {
         }
+        $notice = 'An error occurred! Please try again.';
     }
 }
 
+// Age and gender for the card
+$age = '-';
+if (!empty($provider['dob'])) {
+    $age = (new DateTime())->diff(new DateTime($provider['dob']))->y;
+}
+$gender_ar = ['male' => 'ذكر', 'female' => 'أنثى'][$provider['gender'] ?? ''] ?? '';
 ?>
 
 <!DOCTYPE html>
@@ -63,79 +91,44 @@ if (isset($_POST['submit'])) {
         <h1>health&care</h1>
         <div>
             <a href="index.php">Homepage</a>
-            <?php if (isset($_SESSION['email'])) { ?>
+            <?php if ($me_email): ?>
                 <a href="profile.php">profile</a>
                 <a href="logout.php">logout</a>
-            <?php } else {
-            ?>
+            <?php else: ?>
                 <a href="login.php">login</a>
-            <?php } ?>
+            <?php endif; ?>
         </div>
     </nav>
-    <?php
-    $sql = "select * from coaches where id = '$coach_id'";
-    $result = mysqli_query($con, $sql);
-    if ($result) {
-        while ($row = mysqli_fetch_assoc($result)) {
-            $birthdate = $row['dob'];
-            $birthDateTime = new DateTime($birthdate);
-            $currentDate = new DateTime();
-            $age = $currentDate->diff($birthDateTime)->y;
 
-            $gender = $row['gender'];
-            if ($gender === "male") {
-                $gender_ar = "ذكر";
-            } elseif ($gender === "female") {
-                $gender_ar = "أنثى";
-            } else {
-            }
-    ?>
-            <div class="card" style="width: 18rem;">
-                <img class="card-img-top" src="images/user-icon.png" alt="Card image cap">
-                <div class="card-body">
-                    <h5 class="card-title"><?= $row['username'] ?></h5>
-                    <div style="display: flex ; justify-content:space-evenly">
-                        <p class="card-text"> age:<?= $age ?> </p>
-                        <p class="card-text"> gender:<?= $gender_ar ?></p>
-                    </div>
-                    <p class="card-text">Years of experience: <?= $row['experience'] ?> years</p>
-                    <p class="card-text">Certificates: <?= $row['certifications'] ?></p>
-                    <p class="card-text">subscription fees: <?= $row['hourly_rate'] ?></p>
-                    <?php if ($logged_in_email) {
-                        // Check if the logged-in user exists in the 'users' table
-                        $user_check_query = "SELECT * FROM users WHERE email = '$logged_in_email'";
-                        $user_check_result = mysqli_query($con, $user_check_query);
-
-                        if (mysqli_num_rows($user_check_result) > 0) {
-                            // The logged-in user is a regular user, check for an existing subscription
-                            $coach_email = $row['email']; // Get the coachitionist's email
-                            $subscription_check_query = "SELECT * FROM coach_subscription WHERE user_email = '$logged_in_email'";
-                            $subscription_check_result = mysqli_query($con, $subscription_check_query);
-
-                            if (mysqli_num_rows($subscription_check_result) > 0) {
-                                // If subscription exists, show message instead of button
-                                echo "<p style='color: green; font-weight: bold;'>You have an ongoing subscription with a trainer.</p>";
-                            } else {
-                                // If no subscription, show the subscribe button
-                    ?>
-                                <form action="viewcoaches.php" method="post" class="form">
-                                    <input type='hidden' value="<?= $row['email'] ?>" name="coach_email">
-                                    <button type="submit" name="submit">subscripe</button>
-                                </form>
-                    <?php
-                            }
-                        }
-                    } ?>
-
-                    <!--  -->
-                </div>
+    <div class="card" style="width: 18rem;">
+        <img class="card-img-top" src="images/user-icon.png" alt="Card image cap">
+        <div class="card-body">
+            <h5 class="card-title"><?= e($provider['username']) ?></h5>
+            <div style="display: flex ; justify-content:space-evenly">
+                <p class="card-text"> age: <?= e($age) ?> </p>
+                <p class="card-text"> gender: <?= e($gender_ar) ?></p>
             </div>
-    <?php
-        }
-    } ?>
-    <script>
+            <p class="card-text">Years of experience: <?= e($provider['experience']) ?> years</p>
+            <p class="card-text">Certificates: <?= e($provider['certifications']) ?></p>
+            <p class="card-text">subscription fees: <?= e($provider['hourly_rate']) ?></p>
 
-    </script>
+            <?php if ($notice !== ''): ?>
+                <p style="color:#c0392b; font-weight: bold;"><?= e($notice) ?></p>
+            <?php endif; ?>
+
+            <?php if ($is_user): ?>
+                <?php if ($already_subscribed): ?>
+                    <p style="color: green; font-weight: bold;">You have an ongoing subscription with a trainer.</p>
+                <?php else: ?>
+                    <form action="viewcoaches.php?id=<?= (int) $provider_id ?>" method="post" class="form">
+                        <?= csrf_field() ?>
+                        <button type="submit" name="submit">subscribe</button>
+                    </form>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+
     <footer>
         <div>
             <p>riyadh, Saudi Arabia</p>
