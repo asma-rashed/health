@@ -25,14 +25,14 @@ Both workout and meal plans can be edited and updated by the respective coach or
 ### User profile
 Shows the user's data, their trainer and nutritionist, chat with each, and the weekly diet and exercise plans.
 
-![User profile](screenshots/user-profile.png)
+![User profile](screenshots/viewuser-page.png)
 
 ### Trainer / nutritionist dashboard
 Providers see their own details and a list of subscribers.
 
-![Provider dashboard](screenshots/provider-dashboard.png)
+![Provider dashboard](screenshots/user-profile-page.png)
 
 ### Managing a subscriber
 Providers chat with a subscriber and create or update their plan.
 
-![Manage subscriber](screenshots/manage-user.png)
+![Manage subscriber](screenshots/nutritionist-profile-page.png)
