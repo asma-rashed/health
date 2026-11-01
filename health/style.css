@@ -398,7 +398,7 @@ footer p {
     padding: 5px;
 }
 .diet-table-container {
-    width: 90%;
+    width: 100%;
     max-width: 800px;
     margin: 20px auto;
     padding: 20px;
@@ -441,7 +441,11 @@ footer p {
 .diet-table td {
     color: #555;
 }
-
+.diet-table textarea {
+    width: 100%;
+    min-height: 90px;
+    resize: vertical;
+}
 .diet-table td:first-child {
     font-weight: bold;
     color: #333;
@@ -455,4 +459,16 @@ table{text-align: center;}
     color: white;
     border-radius: 4px;
     margin: 8px;
+}
+.error-message{
+    color: red;
+}
+.gender-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.gender-group label:first-child {
+    margin-right: 5px;
 }

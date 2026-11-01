@@ -9,7 +9,7 @@ if ($subscribed) {
 ?>
 
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en"
 
 <head>
     <meta charset="UTF-8">

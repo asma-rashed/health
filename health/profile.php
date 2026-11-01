@@ -32,10 +32,10 @@ function age_from(?string $birth_date)
     return (new DateTime())->diff(new DateTime($birth_date))->y;
 }
 
-function gender_ar(?string $gender): string
-{
-    return ['male' => 'ذكر', 'female' => 'أنثى'][$gender ?? ''] ?? '';
-}
+// function gender_ar(?string $gender): string
+// {
+//     return ['male' => 'ذكر', 'female' => 'أنثى'][$gender ?? ''] ?? '';
+// }
 
 // ---------------------------------------------------------------
 // 1) Load the logged-in account fresh from the database
@@ -161,11 +161,12 @@ function render_provider_card(?array $p, string $empty_text): void
         echo "<p style='color: green; font-weight: bold; text-align: center;'>" . e($empty_text) . '</p>';
         return;
     } ?>
+
     <img src="images/user-icon.png" alt="" width="100">
     <h2 class="card-title"><?= e($p['username']) ?></h2>
     <div style="display: flex ; justify-content:space-evenly">
         <p class="card-text">age: <?= e(age_from($p['dob'])) ?> </p>
-        <p class="card-text">gender: <?= e(gender_ar($p['gender'])) ?></p>
+        <p class="card-text">gender: <?= e($p['gender']) ?></p>
     </div>
     <p class="card-text">Years of experience: <?= e($p['experience']) ?> years</p>
     <p class="card-text">Certificates: <?= e($p['certifications']) ?></p>
@@ -234,7 +235,9 @@ function render_plan(string $heading, string $col_day, string $col_plan, ?array 
                         </tr>
                     <?php endforeach; ?>
                 <?php else: ?>
-                    <tr><td colspan="2"><?= e($none_text) ?></td></tr>
+                    <tr>
+                        <td colspan="2"><?= e($none_text) ?></td>
+                    </tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -244,7 +247,7 @@ function render_plan(string $heading, string $col_day, string $col_plan, ?array 
 ?>
 
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -265,7 +268,9 @@ function render_plan(string $heading, string $col_day, string $col_plan, ?array 
     </nav>
 
     <?php if (isset($_GET['success']) && $_GET['success'] === '1'): ?>
-        <script>alert('successfully subscribed!');</script>
+        <script>
+            alert('successfully subscribed!');
+        </script>
     <?php endif; ?>
 
     <div class="profile-container">
@@ -278,7 +283,7 @@ function render_plan(string $heading, string $col_day, string $col_plan, ?array 
                     <p>name: <?= e($me['name']) ?></p>
                     <p>email: <?= e($me['email']) ?></p>
                     <p>phone number: <?= e($me['phone']) ?></p>
-                    <p>gender: <?= e(gender_ar($me['gender'])) ?></p>
+                    <p>gender: <?= e($me['gender']) ?></p>
                     <p>weight: <?= e($me['weight']) ?> kg</p>
                     <p>height: <?= e($me['height']) ?> cm</p>
                     <p>date of birth: <?= e($me['date_of_birth']) ?></p>
@@ -286,16 +291,14 @@ function render_plan(string $heading, string $col_day, string $col_plan, ?array 
                 </div>
                 <hr>
 
-                <div style="display: flex; justify-content:space-evenly;">
-                    <div style="border: 1px solid black; padding:4px; text-align:center; border-radius:4px">
+                <div style="display: flex; justify-content:space-around;">
+                    <div style="border: 1px solid black; padding:4px; text-align:center; border-radius:4px; width:45%">
                         <h1>Your Trainer</h1>
                         <?php render_provider_card($coach, 'You do not have a subscription with any coach.'); ?>
                     </div>
-                    <div>
-                        <div style="border: 1px solid black; padding:4px;text-align:center; border-radius:4px">
-                            <h1>Your nutritionist</h1>
-                            <?php render_provider_card($nutr, 'You do not have a subscription with any nutritionist.'); ?>
-                        </div>
+                    <div style="border: 1px solid black; padding:4px;text-align:center; border-radius:4px; width:45%;">
+                        <h1>Your nutritionist</h1>
+                        <?php render_provider_card($nutr, 'You do not have a subscription with any nutritionist.'); ?>
                     </div>
                 </div>
                 <hr>
@@ -320,7 +323,7 @@ function render_plan(string $heading, string $col_day, string $col_plan, ?array 
                     <p>name: <?= e($me['username']) ?></p>
                     <p>email: <a href="mailto:<?= e($me['email']) ?>"><?= e($me['email']) ?></a></p>
                     <p>phone number: <a href="tel:+966<?= e($me['phone']) ?>"><?= e($me['phone']) ?></a></p>
-                    <p>gender: <?= e(gender_ar($me['gender'])) ?></p>
+                    <p>gender: <?= e($me['gender']) ?></p>
                     <p>date of birth: <?= e($me['dob']) ?></p>
                     <p>Years of experience: <?= e($me['experience']) ?> years</p>
                     <p>Certificates: <?= e($me['certifications']) ?></p>

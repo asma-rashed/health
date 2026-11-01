@@ -19,3 +19,20 @@ A private chat is available between the user and the nutritionist.
 The nutritionist can provide and update a weekly meal plan based on the user's dietary requirements.
 
 Both workout and meal plans can be edited and updated by the respective coach or nutritionist as needed.
+
+## Screenshots
+
+### User profile
+Shows the user's data, their trainer and nutritionist, chat with each, and the weekly diet and exercise plans.
+
+![User profile](screenshots/user-profile.png)
+
+### Trainer / nutritionist dashboard
+Providers see their own details and a list of subscribers.
+
+![Provider dashboard](screenshots/provider-dashboard.png)
+
+### Managing a subscriber
+Providers chat with a subscriber and create or update their plan.
+
+![Manage subscriber](screenshots/manage-user.png)

@@ -173,7 +173,7 @@ $gender_ar = ['male' => 'ذكر', 'female' => 'أنثى'][$viewed['gender'] ?? '
 ?>
 
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -202,7 +202,7 @@ $gender_ar = ['male' => 'ذكر', 'female' => 'أنثى'][$viewed['gender'] ?? '
             <h5 class="card-title"><?= e($viewed['name']) ?></h5>
             <div style="display: flex ; justify-content:space-evenly">
                 <p class="card-text"> age: <?= e($age) ?></p>
-                <p class="card-text"> gender: <?= e($gender_ar) ?></p>
+                <p class="card-text"> gender: <?= e($viewed['gender']) ?></p>
             </div>
             <p class="card-text">weight: <?= e($viewed['weight']) ?></p>
             <p class="card-text">height: <?= e($viewed['height']) ?></p>
@@ -268,7 +268,7 @@ $gender_ar = ['male' => 'ذكر', 'female' => 'أنثى'][$viewed['gender'] ?? '
                     <?php foreach ($days as $day): ?>
                         <tr>
                             <th><?= e($day) ?></th>
-                            <td><input type="text" name="<?= e($day) ?>" maxlength="500" value="<?= e($plan[$day] ?? '') ?>"></td>
+                            <td><textarea type="text" name="<?= e($day) ?>" maxlength="500"><?= e($plan[$day] ?? '') ?></textarea></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

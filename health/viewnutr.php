@@ -76,7 +76,7 @@ $gender_ar = ['male' => 'ذكر', 'female' => 'أنثى'][$provider['gender'] ??
 ?>
 
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
