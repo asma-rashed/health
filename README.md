@@ -23,17 +23,17 @@ Built with **PHP (mysqli), MySQL, HTML, CSS and JavaScript**.
 ### User profile
 Personal data, the user's trainer and nutritionist, a chat with each, and the weekly plans.
 
-![User profile](screenshots/user-profile.png)
+![User profile](screenshots/user-profile-page.png)
 
 ### Nutritionist / trainer profile
 Provider details and the list of subscribers.
 
-![Provider profile](screenshots/provider-profile.png)
+![Provider profile](screenshots/nutritionist-profile-page.png)
 
 ### Managing a subscriber
 Chat with a subscriber and create or update their plan.
 
-![Manage subscriber](screenshots/manage-subscriber.png)
+![Manage subscriber](screenshots/viewuser-page.png)
 
 ## Security
 
